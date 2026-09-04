@@ -174,5 +174,22 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    font-family: var(--font-sans);
   }
+}
+
+@utility honey-gradient {
+  background: linear-gradient(135deg, var(--honey-light) 0%, var(--honey) 100%);
+}
+
+@utility honey-card {
+  background: linear-gradient(135deg, var(--honey-light) 0%, oklch(from var(--honey) l c h / 0.25) 100%);
+}
+
+@utility trust-glow {
+  box-shadow: 0 0 0 1px var(--trust), 0 8px 30px -10px oklch(from var(--trust) l c h / 0.35);
+}
+
+@utility verified-ring {
+  box-shadow: 0 0 0 2px var(--leaf), 0 0 0 4px oklch(from var(--leaf) l c h / 0.2);
 }
