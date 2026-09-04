@@ -10,33 +10,43 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PassportBatchIdRouteImport } from './routes/passport.$batchId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PassportBatchIdRoute = PassportBatchIdRouteImport.update({
+  id: '/passport/$batchId',
+  path: '/passport/$batchId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/passport/$batchId': typeof PassportBatchIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/passport/$batchId': typeof PassportBatchIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/passport/$batchId': typeof PassportBatchIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/passport/$batchId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/passport/$batchId'
+  id: '__root__' | '/' | '/passport/$batchId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  PassportBatchIdRoute: typeof PassportBatchIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +58,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/passport/$batchId': {
+      id: '/passport/$batchId'
+      path: '/passport/$batchId'
+      fullPath: '/passport/$batchId'
+      preLoaderRoute: typeof PassportBatchIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  PassportBatchIdRoute: PassportBatchIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
