@@ -1,6 +1,9 @@
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useMemo } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -19,12 +22,97 @@ import {
   FlaskConical,
   Hexagon,
   Leaf,
+  Loader2,
   MapPin,
   QrCode,
   Settings,
   ShieldCheck,
   User,
+  AlertCircle,
 } from "lucide-react";
+
+const API_BASE_URL = "http://127.0.0.1:8000";
+
+interface SupplyChainEvent {
+  stage: string;
+  label?: string;
+  icon?: string;
+  timestamp?: string;
+  details?: string;
+}
+
+interface PassportData {
+  batchId: string;
+  beekeeper: string;
+  location: string;
+  hiveId: string;
+  honeyType: string;
+  harvestDate: string;
+  quantity: string;
+  status: string;
+  events?: SupplyChainEvent[];
+  blockchain?: {
+    txHash?: string;
+    blockNumber?: string;
+    verifiedAt?: string;
+    network?: string;
+  };
+  lab?: {
+    labName?: string;
+    certificateNo?: string;
+    testDate?: string;
+    moisture?: string;
+    ph?: string;
+    purity?: string;
+    pollen?: string;
+  };
+  hive?: {
+    hiveId?: string;
+    apiaryName?: string;
+    coordinates?: string;
+    floraSource?: string;
+    harvestMethod?: string;
+    beekeeper?: string;
+    experience?: string;
+  };
+}
+
+class NotFoundError extends Error {
+  constructor() {
+    super("Honey batch not found.");
+  }
+}
+
+const fetchPassport = async (batchId: string): Promise<PassportData> => {
+  const res = await fetch(`${API_BASE_URL}/api/passport/${batchId}`);
+  if (res.status === 404) {
+    throw new NotFoundError();
+  }
+  if (!res.ok) {
+    throw new Error(
+      `The verification backend returned an error (${res.status}).`,
+    );
+  }
+  return res.json();
+};
+
+const passportQueryOptions = (batchId: string) => ({
+  queryKey: ["passport", batchId],
+  queryFn: () => fetchPassport(batchId),
+});
+
+const STAGES = [
+  { id: "harvested", label: "Harvested", icon: "🐝" },
+  { id: "extracted", label: "Extracted", icon: "🏭" },
+  { id: "processed", label: "Processed", icon: "⚙️" },
+  { id: "lab-tested", label: "Lab Tested", icon: "🧪" },
+  { id: "bottled", label: "Bottled", icon: "🍯" },
+  { id: "distributed", label: "Distributed", icon: "🚚" },
+];
+
+function normalizeStage(stage: string): string {
+  return stage.toLowerCase().replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "");
+}
 
 export const Route = createFileRoute("/passport/$batchId")({
   component: HoneyPassportPage,
@@ -46,78 +134,179 @@ export const Route = createFileRoute("/passport/$batchId")({
   }),
 });
 
-const MOCK_BATCH = {
-  batchId: "HC-2026-0002",
-  beekeeper: "Ravi Kumar",
-  location: "Coorg, Karnataka",
-  hiveId: "HIVE-002",
-  honeyType: "Wildflower",
-  harvestDate: "2026-09-04",
-  quantity: "20 kg",
-  status: "Harvested",
-};
-
-const STAGES = [
-  { id: "harvested", label: "Harvested", icon: "🐝" },
-  { id: "extracted", label: "Extracted", icon: "🏭" },
-  { id: "processed", label: "Processed", icon: "⚙️" },
-  { id: "lab-tested", label: "Lab Tested", icon: "🧪" },
-  { id: "bottled", label: "Bottled", icon: "🍯" },
-  { id: "distributed", label: "Distributed", icon: "🚚" },
-];
-
-const MOCK_BLOCKCHAIN = {
-  txHash: "0x8f3a2b1c9d4e5f60718293a4b5c6d7e8f9012345",
-  blockNumber: "18,472,931",
-  verifiedAt: "2026-09-04T08:30:00Z",
-  network: "HoneyChain Mainnet",
-};
-
-const MOCK_LAB = {
-  labName: "AgriTest Labs, Bengaluru",
-  certificateNo: "ATL-HC-2026-0892",
-  testDate: "2026-09-05",
-  moisture: "17.2%",
-  ph: "3.8",
-  purity: "99.4%",
-  pollen: "Wildflower dominant",
-};
-
-const MOCK_HIVE = {
-  hiveId: "HIVE-002",
-  apiaryName: "Coorg Highland Apiary",
-  coordinates: "12.3375° N, 75.8066° E",
-  floraSource: "Wildflower meadows, coffee blossoms, eucalyptus",
-  harvestMethod: "Sustainable frame extraction, minimal smoke",
-  beekeeper: "Ravi Kumar",
-  experience: "12 years",
-};
-
 function HoneyPassportPage() {
   const { batchId } = Route.useParams();
-  const currentStageIndex = STAGES.findIndex(
-    (s) => s.id === MOCK_BATCH.status.toLowerCase().replace(/\s+/g, "-"),
+  const { data, isLoading, error, refetch } = useQuery(
+    passportQueryOptions(batchId),
   );
+
+  if (isLoading) {
+    return <LoadingView batchId={batchId} />;
+  }
+
+  if (error) {
+    if (error instanceof NotFoundError) {
+      return <NotFoundView batchId={batchId} />;
+    }
+    return (
+      <ErrorView batchId={batchId} error={error} onRetry={() => refetch()} />
+    );
+  }
+
+  return <PassportContent batchId={batchId} data={data} />;
+}
+
+function LoadingView({ batchId }: { batchId: string }) {
+  return (
+    <div className="min-h-screen bg-background font-sans text-foreground">
+      <PassportHeader batchId={batchId} />
+      <main className="container mx-auto flex max-w-5xl flex-col items-center justify-center px-4 py-24 text-center">
+        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-honey-light">
+          <Loader2 className="h-10 w-10 animate-spin text-honey-dark" />
+        </div>
+        <h2 className="mt-6 text-2xl font-bold">Verifying batch...</h2>
+        <p className="mt-2 max-w-md text-muted-foreground">
+          Fetching the HoneyChain passport record for{" "}
+          <span className="font-medium text-foreground">{batchId}</span>.
+        </p>
+      </main>
+      <PassportFooter />
+    </div>
+  );
+}
+
+function NotFoundView({ batchId }: { batchId: string }) {
+  return (
+    <div className="min-h-screen bg-background font-sans text-foreground">
+      <PassportHeader batchId={batchId} />
+      <main className="container mx-auto max-w-5xl px-4 py-16">
+        <Card className="mx-auto max-w-xl border-honey/20 text-center">
+          <CardContent className="flex flex-col items-center p-8">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+              <AlertCircle className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <h2 className="mt-6 text-2xl font-bold">Honey batch not found.</h2>
+            <p className="mt-2 text-muted-foreground">
+              We could not locate a passport record for batch{" "}
+              <span className="font-medium text-foreground">{batchId}</span>.
+              Please check the QR code or batch ID and try again.
+            </p>
+            <Button asChild className="mt-6 bg-honey-dark text-honey-dark-foreground hover:bg-honey-dark/90">
+              <Link to="/">Return home</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </main>
+      <PassportFooter />
+    </div>
+  );
+}
+
+function ErrorView({
+  batchId,
+  error,
+  onRetry,
+}: {
+  batchId: string;
+  error: Error;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="min-h-screen bg-background font-sans text-foreground">
+      <PassportHeader batchId={batchId} />
+      <main className="container mx-auto max-w-5xl px-4 py-16">
+        <Card className="mx-auto max-w-xl border-destructive/20 text-center">
+          <CardContent className="flex flex-col items-center p-8">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
+              <AlertCircle className="h-8 w-8 text-destructive" />
+            </div>
+            <h2 className="mt-6 text-2xl font-bold">
+              Could not verify batch
+            </h2>
+            <p className="mt-2 text-muted-foreground">
+              {error.message || "Something went wrong while contacting the verification backend."}
+            </p>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <Button onClick={onRetry} className="bg-honey-dark text-honey-dark-foreground hover:bg-honey-dark/90">
+                Try again
+              </Button>
+              <Button asChild variant="outline">
+                <Link to="/">Return home</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </main>
+      <PassportFooter />
+    </div>
+  );
+}
+
+function PassportHeader({ batchId }: { batchId: string }) {
+  return (
+    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="container mx-auto flex h-16 max-w-5xl items-center justify-between px-4">
+        <Link to="/" className="flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-honey text-honey-foreground">
+            <Hexagon className="h-5 w-5 fill-current" />
+          </div>
+          <span className="text-xl font-bold tracking-tight">HoneyChain</span>
+        </Link>
+        <Badge
+          variant="outline"
+          className="border-trust/30 bg-trust-light text-trust"
+        >
+          <ShieldCheck className="mr-1 h-3 w-3" />
+          Verified
+        </Badge>
+      </div>
+    </header>
+  );
+}
+
+function PassportFooter() {
+  return (
+    <footer className="border-t bg-background py-8">
+      <div className="container mx-auto max-w-5xl px-4 text-center text-sm text-muted-foreground">
+        <p className="font-medium">Powered by HoneyChain</p>
+        <p className="mt-1">Smart India Hackathon 2026</p>
+      </div>
+    </footer>
+  );
+}
+
+function PassportContent({ batchId, data }: { batchId: string; data: PassportData }) {
+  const currentStatusId = useMemo(() => {
+    if (data.status) return normalizeStage(data.status);
+    if (data.events && data.events.length > 0) {
+      const sorted = [...data.events].sort((a, b) => {
+        if (!a.timestamp || !b.timestamp) return 0;
+        return (
+          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        );
+      });
+      return normalizeStage(sorted[sorted.length - 1].stage);
+    }
+    return "";
+  }, [data.status, data.events]);
+
+  const currentStageIndex = STAGES.findIndex((s) => s.id === currentStatusId);
+
+  const eventMap = useMemo(() => {
+    const map = new Map<string, SupplyChainEvent>();
+    for (const event of data.events ?? []) {
+      map.set(normalizeStage(event.stage), event);
+    }
+    return map;
+  }, [data.events]);
+
+  const blockchain = data.blockchain;
+  const lab = data.lab;
+  const hive = data.hive;
 
   return (
     <div className="min-h-screen bg-background font-sans text-foreground">
-      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container mx-auto flex h-16 max-w-5xl items-center justify-between px-4">
-          <Link to="/" className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-honey text-honey-foreground">
-              <Hexagon className="h-5 w-5 fill-current" />
-            </div>
-            <span className="text-xl font-bold tracking-tight">HoneyChain</span>
-          </Link>
-          <Badge
-            variant="outline"
-            className="border-trust/30 bg-trust-light text-trust"
-          >
-            <ShieldCheck className="mr-1 h-3 w-3" />
-            Verified
-          </Badge>
-        </div>
-      </header>
+      <PassportHeader batchId={batchId} />
 
       <main className="container mx-auto max-w-5xl px-4 py-8 md:py-12">
         <section className="mb-10 text-center">
@@ -144,7 +333,7 @@ function HoneyPassportPage() {
                   </CardDescription>
                 </div>
                 <Badge className="w-fit bg-honey-dark text-honey-dark-foreground hover:bg-honey-dark/90">
-                  {MOCK_BATCH.status}
+                  {data.status}
                 </Badge>
               </div>
             </CardHeader>
@@ -152,42 +341,42 @@ function HoneyPassportPage() {
               <InfoItem
                 icon={<Box className="h-4 w-4" />}
                 label="Batch ID"
-                value={MOCK_BATCH.batchId}
+                value={data.batchId}
               />
               <InfoItem
                 icon={<User className="h-4 w-4" />}
                 label="Beekeeper"
-                value={MOCK_BATCH.beekeeper}
+                value={data.beekeeper}
               />
               <InfoItem
                 icon={<MapPin className="h-4 w-4" />}
                 label="Location"
-                value={MOCK_BATCH.location}
+                value={data.location}
               />
               <InfoItem
                 icon={<Hexagon className="h-4 w-4" />}
                 label="Hive ID"
-                value={MOCK_BATCH.hiveId}
+                value={data.hiveId}
               />
               <InfoItem
                 icon={<Leaf className="h-4 w-4" />}
                 label="Honey Type"
-                value={MOCK_BATCH.honeyType}
+                value={data.honeyType}
               />
               <InfoItem
                 icon={<Calendar className="h-4 w-4" />}
                 label="Harvest Date"
-                value={MOCK_BATCH.harvestDate}
+                value={data.harvestDate}
               />
               <InfoItem
                 icon={<Droplets className="h-4 w-4" />}
                 label="Quantity"
-                value={MOCK_BATCH.quantity}
+                value={data.quantity}
               />
               <InfoItem
                 icon={<ShieldCheck className="h-4 w-4" />}
                 label="Current Status"
-                value={MOCK_BATCH.status}
+                value={data.status}
               />
             </CardContent>
           </Card>
@@ -201,12 +390,15 @@ function HoneyPassportPage() {
             <CardContent className="p-6">
               <div className="space-y-2">
                 {STAGES.map((stage, index) => {
-                  const isCompleted = index <= currentStageIndex;
+                  const event = eventMap.get(stage.id);
+                  const isCompleted =
+                    currentStageIndex >= 0 && index <= currentStageIndex;
                   const isCurrent = index === currentStageIndex;
                   return (
                     <TimelineItem
                       key={stage.id}
                       stage={stage}
+                      event={event}
                       isCompleted={isCompleted}
                       isCurrent={isCurrent}
                       isLast={index === STAGES.length - 1}
@@ -255,29 +447,30 @@ function HoneyPassportPage() {
               <InfoItem
                 icon={<Database className="h-4 w-4" />}
                 label="Network"
-                value={MOCK_BLOCKCHAIN.network}
+                value={blockchain?.network ?? "HoneyChain Mainnet"}
               />
               <InfoItem
                 icon={<Box className="h-4 w-4" />}
                 label="Block Number"
-                value={MOCK_BLOCKCHAIN.blockNumber}
+                value={blockchain?.blockNumber ?? "—"}
               />
               <InfoItem
                 icon={<Hexagon className="h-4 w-4" />}
                 label="Transaction Hash"
-                value={MOCK_BLOCKCHAIN.txHash}
+                value={blockchain?.txHash ?? "—"}
                 className="sm:col-span-2"
               />
               <InfoItem
                 icon={<Calendar className="h-4 w-4" />}
                 label="Verified At"
-                value={new Date(MOCK_BLOCKCHAIN.verifiedAt).toLocaleString(
-                  "en-IN",
-                  {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  },
-                )}
+                value={
+                  blockchain?.verifiedAt
+                    ? new Date(blockchain.verifiedAt).toLocaleString("en-IN", {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })
+                    : "—"
+                }
                 className="sm:col-span-2"
               />
             </CardContent>
@@ -292,19 +485,30 @@ function HoneyPassportPage() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <FlaskConical className="h-5 w-5 text-trust" />
-                <CardTitle className="text-lg">{MOCK_LAB.labName}</CardTitle>
+                <CardTitle className="text-lg">
+                  {lab?.labName ?? "Lab Report Pending"}
+                </CardTitle>
               </div>
-              <CardDescription>
-                Certificate No: {MOCK_LAB.certificateNo} · Tested on{" "}
-                {MOCK_LAB.testDate}
-              </CardDescription>
+              {lab && (
+                <CardDescription>
+                  Certificate No: {lab.certificateNo ?? "—"} · Tested on{" "}
+                  {lab.testDate ?? "—"}
+                </CardDescription>
+              )}
             </CardHeader>
-            <CardContent className="grid gap-4 p-6 pt-0 sm:grid-cols-2 lg:grid-cols-4">
-              <MetricCard label="Moisture" value={MOCK_LAB.moisture} />
-              <MetricCard label="pH Level" value={MOCK_LAB.ph} />
-              <MetricCard label="Purity" value={MOCK_LAB.purity} />
-              <MetricCard label="Pollen Source" value={MOCK_LAB.pollen} />
-            </CardContent>
+            {lab ? (
+              <CardContent className="grid gap-4 p-6 pt-0 sm:grid-cols-2 lg:grid-cols-4">
+                <MetricCard label="Moisture" value={lab.moisture ?? "—"} />
+                <MetricCard label="pH Level" value={lab.ph ?? "—"} />
+                <MetricCard label="Purity" value={lab.purity ?? "—"} />
+                <MetricCard label="Pollen Source" value={lab.pollen ?? "—"} />
+              </CardContent>
+            ) : (
+              <CardContent className="p-6 pt-0 text-sm text-muted-foreground">
+                Lab testing details will appear here once the batch has been
+                tested.
+              </CardContent>
+            )}
           </Card>
         </section>
 
@@ -319,32 +523,38 @@ function HoneyPassportPage() {
                   <InfoItem
                     icon={<Hexagon className="h-4 w-4" />}
                     label="Hive ID"
-                    value={MOCK_HIVE.hiveId}
+                    value={hive?.hiveId ?? data.hiveId}
                   />
                   <InfoItem
                     icon={<MapPin className="h-4 w-4" />}
                     label="Apiary"
-                    value={MOCK_HIVE.apiaryName}
+                    value={hive?.apiaryName ?? "—"}
                   />
                   <InfoItem
                     icon={<MapPin className="h-4 w-4" />}
                     label="Coordinates"
-                    value={MOCK_HIVE.coordinates}
+                    value={hive?.coordinates ?? "—"}
                   />
                   <InfoItem
                     icon={<Leaf className="h-4 w-4" />}
                     label="Flora Source"
-                    value={MOCK_HIVE.floraSource}
+                    value={hive?.floraSource ?? "—"}
                   />
                   <InfoItem
                     icon={<User className="h-4 w-4" />}
                     label="Beekeeper"
-                    value={`${MOCK_HIVE.beekeeper} · ${MOCK_HIVE.experience} experience`}
+                    value={
+                      hive?.beekeeper
+                        ? `${hive.beekeeper}${
+                            hive.experience ? ` · ${hive.experience} experience` : ""
+                          }`
+                        : data.beekeeper
+                    }
                   />
                   <InfoItem
                     icon={<Settings className="h-4 w-4" />}
                     label="Harvest Method"
-                    value={MOCK_HIVE.harvestMethod}
+                    value={hive?.harvestMethod ?? "—"}
                   />
                 </div>
               </CardContent>
@@ -354,10 +564,10 @@ function HoneyPassportPage() {
                     <MapPin className="h-8 w-8" />
                   </div>
                   <p className="mt-3 font-semibold text-honey-dark">
-                    Coorg, Karnataka
+                    {data.location}
                   </p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Western Ghats, India
+                    Verified Origin
                   </p>
                 </div>
               </div>
@@ -366,12 +576,7 @@ function HoneyPassportPage() {
         </section>
       </main>
 
-      <footer className="border-t bg-background py-8">
-        <div className="container mx-auto max-w-5xl px-4 text-center text-sm text-muted-foreground">
-          <p className="font-medium">Powered by HoneyChain</p>
-          <p className="mt-1">Smart India Hackathon 2026 · Mock data demo</p>
-        </div>
-      </footer>
+      <PassportFooter />
     </div>
   );
 }
@@ -416,15 +621,26 @@ function MetricCard({ label, value }: { label: string; value: string }) {
 
 function TimelineItem({
   stage,
+  event,
   isCompleted,
   isCurrent,
   isLast,
 }: {
   stage: (typeof STAGES)[number];
+  event?: SupplyChainEvent;
   isCompleted: boolean;
   isCurrent: boolean;
   isLast: boolean;
 }) {
+  const displayLabel = event?.label ?? stage.label;
+  const displayIcon = event?.icon ?? stage.icon;
+  const eventTime = event?.timestamp
+    ? new Date(event.timestamp).toLocaleString("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : null;
+
   return (
     <div className="flex gap-4">
       <div className="flex flex-col items-center">
@@ -437,7 +653,11 @@ function TimelineItem({
             isCurrent && "ring-2 ring-honey ring-offset-2 ring-offset-background",
           )}
         >
-          {isCompleted ? <Check className="h-5 w-5" /> : <span>{stage.icon}</span>}
+          {isCompleted ? (
+            <Check className="h-5 w-5" />
+          ) : (
+            <span>{displayIcon}</span>
+          )}
         </div>
         {!isLast && (
           <div
@@ -459,14 +679,14 @@ function TimelineItem({
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="text-lg">{stage.icon}</span>
+            <span className="text-lg">{displayIcon}</span>
             <h3
               className={cn(
                 "font-semibold",
                 isCurrent && "text-honey-dark",
               )}
             >
-              {stage.label}
+              {displayLabel}
             </h3>
           </div>
           {isCompleted && !isCurrent && (
@@ -484,9 +704,18 @@ function TimelineItem({
             </Badge>
           )}
         </div>
-        {isCurrent && (
+        {(isCurrent || eventTime || event?.details) && (
           <p className="mt-2 text-sm text-muted-foreground">
-            This batch is currently at the {stage.label.toLowerCase()} stage.
+            {event?.details
+              ? event.details
+              : isCurrent
+                ? `This batch is currently at the ${displayLabel.toLowerCase()} stage.`
+                : null}
+            {eventTime && (
+              <span className="mt-1 block text-xs text-muted-foreground/80">
+                {eventTime}
+              </span>
+            )}
           </p>
         )}
       </div>
