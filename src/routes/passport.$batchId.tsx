@@ -227,8 +227,8 @@ function HoneyPassportPage() {
               <div>
                 <h2 className="text-xl font-bold">Traceability Verified</h2>
                 <p className="mt-1 text-muted-foreground">
-                  This batch has been tracked at every stage from hive to jar.
-                  All records are immutable and cryptographically signed on the
+                  This batch is being tracked at every stage from hive to jar.
+                  Every record is immutable and cryptographically signed on the
                   HoneyChain network.
                 </p>
               </div>
