@@ -13,13 +13,11 @@ import {
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import {
-  AlertCircle,
   Box,
   Calendar,
   Check,
   Database,
   Droplets,
-  ExternalLink,
   FlaskConical,
   Hexagon,
   Leaf,
@@ -29,31 +27,25 @@ import {
   Settings,
   ShieldCheck,
   User,
+  AlertCircle,
 } from "lucide-react";
 
 /*
  * HoneyChain Backend
  *
- * Public Render backend.
+ * This is the public Render backend.
  */
 const API_BASE_URL = "https://honeychain-backend-gurw.onrender.com";
 
 interface SupplyChainEvent {
+  event_id?: number;
   stage: string;
   label?: string;
   icon?: string;
   timestamp?: string;
+  location?: string;
+  actor?: string;
   details?: string;
-}
-
-interface BlockchainVerification {
-  verified: boolean;
-  batch_id: string;
-  metadata_hash: string;
-  registered_by: string;
-  blockchain_timestamp: number;
-  network: string;
-  contract_address: string;
 }
 
 interface PassportData {
@@ -102,11 +94,19 @@ class NotFoundError extends Error {
 }
 
 /*
- * Fetch Honey Passport data from FastAPI backend.
+ * Fetch Honey Passport data from the live FastAPI backend.
+ *
+ * Backend response format:
+ *
+ * {
+ *   "passport": {...},
+ *   "supply_chain": [...]
+ * }
+ *
+ * The frontend converts that response into the format
+ * expected by the existing Honey Passport UI.
  */
-const fetchPassport = async (
-  batchId: string,
-): Promise<PassportData> => {
+const fetchPassport = async (batchId: string): Promise<PassportData> => {
   const res = await fetch(
     `${API_BASE_URL}/api/passport/${encodeURIComponent(batchId)}`,
   );
@@ -124,9 +124,7 @@ const fetchPassport = async (
   const result = await res.json();
 
   if (!result.passport) {
-    throw new Error(
-      "Invalid passport data received from the backend.",
-    );
+    throw new Error("Invalid passport data received from the backend.");
   }
 
   const passport = result.passport;
@@ -150,34 +148,16 @@ const fetchPassport = async (
         timestamp?: string;
         notes?: string;
       }) => ({
+        event_id: event.event_id,
         stage: event.stage,
         timestamp: event.timestamp,
+        location: event.location,
+        actor: event.actor,
         details: event.notes,
         label: event.stage,
       }),
     ),
   };
-};
-
-/*
- * Fetch real blockchain verification data.
- */
-const fetchBlockchainVerification = async (
-  batchId: string,
-): Promise<BlockchainVerification | null> => {
-  try {
-    const res = await fetch(
-      `${API_BASE_URL}/api/blockchain/verify/${encodeURIComponent(batchId)}`,
-    );
-
-    if (!res.ok) {
-      return null;
-    }
-
-    return await res.json();
-  } catch {
-    return null;
-  }
 };
 
 const passportQueryOptions = (batchId: string) => ({
@@ -271,12 +251,7 @@ function HoneyPassportPage() {
     );
   }
 
-  return (
-    <PassportContent
-      batchId={batchId}
-      data={data}
-    />
-  );
+  return <PassportContent batchId={batchId} data={data} />;
 }
 
 function LoadingView({ batchId }: { batchId: string }) {
@@ -446,47 +421,28 @@ function PassportContent({
   batchId: string;
   data: PassportData;
 }) {
-  /*
-   * REAL BLOCKCHAIN VERIFICATION
-   *
-   * This calls:
-   * /api/blockchain/verify/{batchId}
-   *
-   * The backend reads the actual HoneyChain smart contract
-   * deployed on Sepolia.
-   */
-  const {
-    data: blockchainVerification,
-    isLoading: blockchainLoading,
-  } = useQuery({
-    queryKey: ["blockchain-verification", batchId],
-    queryFn: () => fetchBlockchainVerification(batchId),
-  });
+  const sortedEvents = useMemo(() => {
+    return [...(data.events ?? [])].sort((a, b) => {
+      if (!a.timestamp || !b.timestamp) {
+        return 0;
+      }
+
+      return (
+        new Date(a.timestamp).getTime() -
+        new Date(b.timestamp).getTime()
+      );
+    });
+  }, [data.events]);
 
   const currentStatusId = useMemo(() => {
-    if (data.status) {
-      return normalizeStage(data.status);
-    }
-
-    if (data.events && data.events.length > 0) {
-      const sorted = [...data.events].sort((a, b) => {
-        if (!a.timestamp || !b.timestamp) {
-          return 0;
-        }
-
-        return (
-          new Date(a.timestamp).getTime() -
-          new Date(b.timestamp).getTime()
-        );
-      });
-
+    if (sortedEvents.length > 0) {
       return normalizeStage(
-        sorted[sorted.length - 1].stage,
+        sortedEvents[sortedEvents.length - 1].stage,
       );
     }
 
-    return "";
-  }, [data.status, data.events]);
+    return normalizeStage(data.status ?? "");
+  }, [data.status, sortedEvents]);
 
   const currentStageIndex = STAGES.findIndex(
     (s) => s.id === currentStatusId,
@@ -502,6 +458,7 @@ function PassportContent({
     return map;
   }, [data.events]);
 
+  const blockchain = data.blockchain;
   const lab = data.lab;
   const hive = data.hive;
 
@@ -605,37 +562,37 @@ function PassportContent({
         </section>
 
         {/* QR VERIFICATION */}
-        <section className="mb-10">
-          <Card className="border-honey/20 shadow-lg">
-            <CardHeader className="text-center">
-              <CardTitle className="flex items-center justify-center gap-2 text-xl">
-                <QrCode className="h-5 w-5 text-honey-dark" />
-                Verify This Honey
-              </CardTitle>
+<section className="mb-10">
+  <Card className="border-honey/20 shadow-lg">
+    <CardHeader className="text-center">
+      <CardTitle className="flex items-center justify-center gap-2 text-xl">
+        <QrCode className="h-5 w-5 text-honey-dark" />
+        Verify This Honey
+      </CardTitle>
 
-              <CardDescription>
-                Scan the QR code to open this Honey Passport.
-              </CardDescription>
-            </CardHeader>
+      <CardDescription>
+        Scan the QR code to open this Honey Passport.
+      </CardDescription>
+    </CardHeader>
 
-            <CardContent className="flex flex-col items-center p-6">
-              <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                <img
-                  src={`${API_BASE_URL}/api/qr/${encodeURIComponent(batchId)}`}
-                  alt={`QR code for honey batch ${batchId}`}
-                  className="h-52 w-52"
-                />
-              </div>
+    <CardContent className="flex flex-col items-center p-6">
+      <div className="rounded-2xl border bg-white p-4 shadow-sm">
+        <img
+          src={`${API_BASE_URL}/api/qr/${encodeURIComponent(batchId)}`}
+          alt={`QR code for honey batch ${batchId}`}
+          className="h-52 w-52"
+        />
+      </div>
 
-              <p className="mt-4 text-sm text-muted-foreground">
-                Batch:{" "}
-                <span className="font-medium text-foreground">
-                  {batchId}
-                </span>
-              </p>
-            </CardContent>
-          </Card>
-        </section>
+      <p className="mt-4 text-sm text-muted-foreground">
+        Batch:{" "}
+        <span className="font-medium text-foreground">
+          {batchId}
+        </span>
+      </p>
+    </CardContent>
+  </Card>
+</section>
 
         {/* SUPPLY CHAIN */}
         <section className="mb-10">
@@ -650,12 +607,10 @@ function PassportContent({
                 {STAGES.map((stage, index) => {
                   const event = eventMap.get(stage.id);
 
-                  const isCompleted =
-                    currentStageIndex >= 0 &&
-                    index <= currentStageIndex;
+                  const isCompleted = Boolean(event);
 
                   const isCurrent =
-                    index === currentStageIndex;
+                    Boolean(event) && index === currentStageIndex;
 
                   return (
                     <TimelineItem
@@ -691,9 +646,9 @@ function PassportContent({
                 </h2>
 
                 <p className="mt-1 text-muted-foreground">
-                  This batch is being tracked at every stage from hive to jar.
-                  Every recorded event can be independently verified through
-                  the HoneyChain traceability system.
+                  This batch is tracked through recorded supply-chain events from
+                  hive to jar. Every recorded event can be independently verified
+                  through the HoneyChain traceability system.
                 </p>
               </div>
 
@@ -701,155 +656,68 @@ function PassportContent({
           </Card>
         </section>
 
-        {/* REAL BLOCKCHAIN VERIFICATION */}
+        {/* BLOCKCHAIN */}
         <section className="mb-10">
           <h2 className="mb-6 text-2xl font-bold tracking-tight">
             Blockchain Verification
           </h2>
 
-          <Card
-            className={cn(
-              "border-trust/20",
-              blockchainVerification?.verified &&
-                "trust-glow",
-            )}
-          >
+          <Card className="border-trust/20 trust-glow">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">
                 <Database className="h-5 w-5 text-trust" />
-
                 On-Chain Record
-
-                {blockchainLoading ? (
-                  <Badge
-                    variant="outline"
-                    className="ml-auto"
-                  >
-                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                    Checking...
-                  </Badge>
-                ) : blockchainVerification?.verified ? (
-                  <Badge className="ml-auto bg-leaf text-leaf-foreground">
-                    <Check className="mr-1 h-3 w-3" />
-                    Verified
-                  </Badge>
-                ) : (
-                  <Badge
-                    variant="outline"
-                    className="ml-auto"
-                  >
-                    Not Found
-                  </Badge>
-                )}
               </CardTitle>
 
               <CardDescription>
-                Blockchain verification confirms that this batch
-                has a corresponding record on the HoneyChain
-                Sepolia test network.
+                This passport will be anchored to a public blockchain record
+                for transparency.
               </CardDescription>
             </CardHeader>
 
             <CardContent className="grid gap-6 p-6 pt-0 sm:grid-cols-2">
 
-              {/* NETWORK */}
               <InfoItem
                 icon={<Database className="h-4 w-4" />}
                 label="Network"
                 value={
-                  blockchainVerification?.network ??
+                  blockchain?.network ??
                   "Sepolia Testnet"
                 }
               />
 
-              {/* BATCH ID */}
               <InfoItem
                 icon={<Box className="h-4 w-4" />}
-                label="Batch ID"
+                label="Block Number"
                 value={
-                  blockchainVerification?.batch_id ??
-                  batchId
+                  blockchain?.blockNumber ?? "—"
                 }
               />
 
-              {/* STATUS */}
-              <InfoItem
-                icon={<ShieldCheck className="h-4 w-4" />}
-                label="Blockchain Status"
-                value={
-                  blockchainVerification?.verified
-                    ? "Verified on blockchain"
-                    : "Blockchain record not found"
-                }
-              />
-
-              {/* REGISTERED BY */}
-              <InfoItem
-                icon={<User className="h-4 w-4" />}
-                label="Registered By"
-                value={
-                  blockchainVerification?.registered_by ??
-                  "—"
-                }
-              />
-
-              {/* METADATA HASH */}
               <InfoItem
                 icon={<Hexagon className="h-4 w-4" />}
-                label="Metadata Hash"
+                label="Transaction Hash"
                 value={
-                  blockchainVerification?.metadata_hash ??
-                  "—"
+                  blockchain?.txHash ?? "—"
                 }
                 className="sm:col-span-2"
               />
 
-              {/* SMART CONTRACT */}
               <InfoItem
-                icon={<Settings className="h-4 w-4" />}
-                label="Smart Contract"
+                icon={<Calendar className="h-4 w-4" />}
+                label="Verified At"
                 value={
-                  blockchainVerification?.contract_address ??
-                  "—"
+                  blockchain?.verifiedAt
+                    ? new Date(
+                        blockchain.verifiedAt,
+                      ).toLocaleString("en-IN", {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })
+                    : "—"
                 }
                 className="sm:col-span-2"
               />
-
-              {/* BLOCKCHAIN TIMESTAMP */}
-              {blockchainVerification?.blockchain_timestamp ? (
-                <InfoItem
-                  icon={<Calendar className="h-4 w-4" />}
-                  label="Registered On"
-                  value={new Date(
-                    blockchainVerification.blockchain_timestamp *
-                      1000,
-                  ).toLocaleString("en-IN", {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  })}
-                  className="sm:col-span-2"
-                />
-              ) : null}
-
-              {/* EXPLORER LINK */}
-              {blockchainVerification?.verified ? (
-                <div className="sm:col-span-2">
-                  <Button
-                    asChild
-                    variant="outline"
-                    className="w-full sm:w-auto"
-                  >
-                    <a
-                      href={`https://sepolia.etherscan.io/address/${blockchainVerification.contract_address}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <ExternalLink className="mr-2 h-4 w-4" />
-                      View Smart Contract on Sepolia Explorer
-                    </a>
-                  </Button>
-                </div>
-              ) : null}
 
             </CardContent>
           </Card>
@@ -1034,10 +902,7 @@ function InfoItem({
         <span>{label}</span>
       </div>
 
-      <p
-        className="truncate font-medium text-foreground"
-        title={value}
-      >
+      <p className="truncate font-medium text-foreground">
         {value}
       </p>
 
@@ -1166,7 +1031,6 @@ function TimelineItem({
             <h3
               className={cn(
                 "font-semibold",
-
                 isCurrent &&
                   "text-honey-dark",
               )}
@@ -1196,26 +1060,46 @@ function TimelineItem({
 
         {(isCurrent ||
           eventTime ||
-          event?.details) && (
-          <p className="mt-2 text-sm text-muted-foreground">
+          event?.details ||
+          event?.location ||
+          event?.actor) && (
+          <div className="mt-2 space-y-1.5 text-sm text-muted-foreground">
+            {event?.details ? (
+              <p>{event.details}</p>
+            ) : isCurrent ? (
+              <p>
+                This batch is currently at the{" "}
+                {displayLabel.toLowerCase()} stage.
+              </p>
+            ) : null}
 
-            {event?.details
-              ? event.details
-              : isCurrent
-                ? `This batch is currently at the ${displayLabel.toLowerCase()} stage.`
-                : null}
-
-            {eventTime && (
-              <span className="mt-1 block text-xs text-muted-foreground/80">
-                {eventTime}
-              </span>
+            {event?.location && (
+              <p>
+                <span className="font-medium text-foreground">
+                  Location:
+                </span>{" "}
+                {event.location}
+              </p>
             )}
 
-          </p>
+            {event?.actor && (
+              <p>
+                <span className="font-medium text-foreground">
+                  Recorded by:
+                </span>{" "}
+                {event.actor}
+              </p>
+            )}
+
+            {eventTime && (
+              <p className="text-xs text-muted-foreground/80">
+                {eventTime}
+              </p>
+            )}
+          </div>
         )}
 
       </div>
-
     </div>
   );
 }
