@@ -60,10 +60,13 @@ interface PassportData {
   events?: SupplyChainEvent[];
 
   blockchain?: {
-    txHash?: string;
-    blockNumber?: string;
-    verifiedAt?: string;
+    verified?: boolean;
+    batchId?: string;
+    metadataHash?: string;
+    registeredBy?: string;
+    blockchainTimestamp?: number;
     network?: string;
+    contractAddress?: string;
   };
 
   lab?: {
@@ -106,6 +109,18 @@ class NotFoundError extends Error {
  * The frontend converts that response into the format
  * expected by the existing Honey Passport UI.
  */
+const fetchBlockchainVerification = async (batchId: string) => {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/blockchain/verify/${encodeURIComponent(batchId)}`,
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+};
+
 const fetchPassport = async (batchId: string): Promise<PassportData> => {
   const res = await fetch(
     `${API_BASE_URL}/api/passport/${encodeURIComponent(batchId)}`,
@@ -128,6 +143,7 @@ const fetchPassport = async (batchId: string): Promise<PassportData> => {
   }
 
   const passport = result.passport;
+  const blockchain = await fetchBlockchainVerification(batchId);
 
   return {
     batchId: passport.batch_id,
@@ -138,6 +154,18 @@ const fetchPassport = async (batchId: string): Promise<PassportData> => {
     harvestDate: passport.harvest_date,
     quantity: `${passport.quantity_kg} kg`,
     status: passport.status,
+
+    blockchain: blockchain
+      ? {
+          verified: blockchain.verified,
+          batchId: blockchain.batch_id,
+          metadataHash: blockchain.metadata_hash,
+          registeredBy: blockchain.registered_by,
+          blockchainTimestamp: blockchain.blockchain_timestamp,
+          network: blockchain.network,
+          contractAddress: blockchain.contract_address,
+        }
+      : undefined,
 
     events: (result.supply_chain ?? []).map(
       (event: {
@@ -688,29 +716,41 @@ function PassportContent({
 
               <InfoItem
                 icon={<Box className="h-4 w-4" />}
-                label="Block Number"
+                label="Status"
                 value={
-                  blockchain?.blockNumber ?? "—"
+                  blockchain?.verified ? "Verified" : "Not registered"
                 }
               />
 
               <InfoItem
                 icon={<Hexagon className="h-4 w-4" />}
-                label="Transaction Hash"
+                label="Metadata Hash"
                 value={
-                  blockchain?.txHash ?? "—"
+                  blockchain?.metadataHash ?? "—"
                 }
                 className="sm:col-span-2"
               />
 
               <InfoItem
                 icon={<Calendar className="h-4 w-4" />}
-                label="Verified At"
+                label="Registered By"
+                value={blockchain?.registeredBy ?? "—"}
+                className="sm:col-span-2"
+              />
+
+              <InfoItem
+                icon={<Hexagon className="h-4 w-4" />}
+                label="Contract Address"
+                value={blockchain?.contractAddress ?? "—"}
+                className="sm:col-span-2"
+              />
+
+              <InfoItem
+                icon={<Calendar className="h-4 w-4" />}
+                label="Blockchain Timestamp"
                 value={
-                  blockchain?.verifiedAt
-                    ? new Date(
-                        blockchain.verifiedAt,
-                      ).toLocaleString("en-IN", {
+                  blockchain?.blockchainTimestamp
+                    ? new Date(blockchain.blockchainTimestamp * 1000).toLocaleString("en-IN", {
                         dateStyle: "medium",
                         timeStyle: "short",
                       })
