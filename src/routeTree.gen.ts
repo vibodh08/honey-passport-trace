@@ -31,8 +31,8 @@ const DashboardRoute = DashboardRouteImport.update({
 } as any)
 const DashboardCreateBatchRoute = DashboardCreateBatchRouteImport.update({
   id: '/dashboard/create-batch',
-  path: '/dashboard/create-batch',
-  getParentRoute: () => rootRouteImport,
+  path: '/create-batch',
+  getParentRoute: () => DashboardRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -58,15 +58,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths: '/' | '/passport/$batchId' | '/dashboard' | '/dashboard/create-batch'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/passport/$batchId' | '/dashboard' | '/dashboard/create-batch'
-  id: '__root__' | '/' | '/passport/$batchId' | '/dashboard' | '/dashboard/create-batch'
   fileRoutesById: FileRoutesById
-}
-export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  PassportBatchIdRoute: typeof PassportBatchIdRoute
-  DashboardRoute: typeof DashboardRoute
-  DashboardCreateBatchRoute: typeof DashboardCreateBatchRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -94,20 +86,24 @@ declare module '@tanstack/react-router' {
     }
     '/dashboard/create-batch': {
       id: '/dashboard/create-batch'
-      path: '/dashboard/create-batch'
+      path: '/create-batch'
       fullPath: '/dashboard/create-batch'
       preLoaderRoute: typeof DashboardCreateBatchRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof DashboardRouteImport
     }
   }
 }
 
-const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  PassportBatchIdRoute: PassportBatchIdRoute,
-  DashboardRoute: DashboardRoute,
+const dashboardRouteChildren = {
   DashboardCreateBatchRoute: DashboardCreateBatchRoute,
 }
+
+const rootRouteChildren = {
+  IndexRoute: IndexRoute,
+  PassportBatchIdRoute: PassportBatchIdRoute,
+  DashboardRoute: DashboardRoute._addFileChildren(dashboardRouteChildren),
+}
+
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
