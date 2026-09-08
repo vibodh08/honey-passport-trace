@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import {
   AlertCircle,
   ArrowRight,
@@ -48,6 +48,14 @@ async function fetchBatches(): Promise<HoneyBatch[]> {
 }
 
 function BeekeeperDashboard() {
+  const location = useLocation();
+
+  // /dashboard/create-batch is a child route of /dashboard.
+  // Let the child route render instead of the dashboard shell.
+  if (location.pathname === "/dashboard/create-batch") {
+    return <Outlet />;
+  }
+
   const [batches, setBatches] = useState<HoneyBatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
