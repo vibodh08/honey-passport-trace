@@ -96,11 +96,9 @@ function BeekeeperDashboard() {
               <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
-            <Button asChild size="sm" className="bg-honey-dark text-honey-dark-foreground hover:bg-honey-dark/90">
-              <Link to="/dashboard/create-batch">
-                <Plus className="mr-2 h-4 w-4" />
-                Create Batch
-              </Link>
+            <Button size="sm" className="bg-honey-dark text-honey-dark-foreground hover:bg-honey-dark/90" onClick={() => { window.location.href = "/dashboard/create-batch"; }}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create Batch
             </Button>
           </div>
         </div>
@@ -156,8 +154,8 @@ function BeekeeperDashboard() {
                 <Boxes className="mx-auto h-10 w-10 text-muted-foreground" />
                 <h3 className="mt-4 font-semibold">No batches yet</h3>
                 <p className="mt-1 text-sm text-muted-foreground">Create your first honey batch to start the hive-to-jar journey.</p>
-                <Button asChild className="mt-5 bg-honey-dark text-honey-dark-foreground hover:bg-honey-dark/90">
-                  <Link to="/dashboard/create-batch"><Plus className="mr-2 h-4 w-4" />Create First Batch</Link>
+                <Button className="mt-5 bg-honey-dark text-honey-dark-foreground hover:bg-honey-dark/90" onClick={() => { window.location.href = "/dashboard/create-batch"; }}>
+                  <Plus className="mr-2 h-4 w-4" />Create First Batch
                 </Button>
               </div>
             ) : (
