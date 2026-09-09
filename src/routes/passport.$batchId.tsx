@@ -2,50 +2,71 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { cn } from "@/lib/utils";
-import {
-  Box,
-  Calendar,
-  Check,
-  Database,
-  Droplets,
-  FlaskConical,
-  Hexagon,
-  Leaf,
-  Loader2,
-  MapPin,
-  QrCode,
-  Settings,
-  ShieldCheck,
-  User,
-  AlertCircle,
-} from "lucide-react";
-
-/*
- * HoneyChain Backend
- *
- * This is the public Render backend.
- */
 const API_BASE_URL = "https://honeychain-backend-gurw.onrender.com";
 
+class NotFoundError extends Error {
+  constructor() {
+    super("Honey batch not found");
+    this.name = "NotFoundError";
+  }
+}
+
 interface SupplyChainEvent {
-  event_id?: number;
+  event_id?: number | undefined;
   stage: string;
-  label?: string;
-  icon?: string;
-  timestamp?: string;
-  location?: string;
-  actor?: string;
-  details?: string;
+  timestamp?: string | undefined;
+  location?: string | undefined;
+  actor?: string | undefined;
+  details?: string | undefined;
+  label?: string | undefined;
+}
+
+interface BlockchainData {
+  verified?: boolean | undefined;
+  batch_id?: string | undefined;
+  metadata_hash?: string | undefined;
+  registered_by?: string | undefined;
+  blockchain_timestamp?: number | undefined;
+  network?: string | undefined;
+  contract_address?: string | undefined;
+}
+
+interface LabCertificate {
+  id?: number;
+  batch_id?: string;
+  certificate_id: string;
+  laboratory_name: string;
+  test_date: string;
+  test_result: string;
+  quality_status: string;
+  notes?: string | null;
+  created_at?: string;
+}
+
+interface BackendPassport {
+  batch_id: string;
+  beekeeper: string;
+  origin: string;
+  hive_id: string;
+  honey_type: string;
+  harvest_date: string;
+  quantity_kg: number;
+  status: string;
+  metadata_hash?: string | null;
+}
+
+interface PassportResponse {
+  passport: BackendPassport;
+  supply_chain?: Array<{
+    event_id?: number;
+    stage: string;
+    location?: string;
+    actor?: string;
+    timestamp?: string;
+    notes?: string;
+  }>;
+  lab_certificate?: LabCertificate | null;
+  blockchain?: BlockchainData | null;
 }
 
 interface PassportData {
@@ -57,93 +78,238 @@ interface PassportData {
   harvestDate: string;
   quantity: string;
   status: string;
-  events?: SupplyChainEvent[];
-
-  blockchain?: {
-    verified?: boolean;
-    batchId?: string;
-    metadataHash?: string;
-    registeredBy?: string;
-    blockchainTimestamp?: number;
-    network?: string;
-    contractAddress?: string;
-  };
-
-  lab?: {
-    labName?: string;
-    certificateNo?: string;
-    testDate?: string;
-    moisture?: string;
-    ph?: string;
-    purity?: string;
-    pollen?: string;
-  };
-
-  hive?: {
-    hiveId?: string;
-    apiaryName?: string;
-    coordinates?: string;
-    floraSource?: string;
-    harvestMethod?: string;
-    beekeeper?: string;
-    experience?: string;
-  };
+  metadataHash?: string | undefined;
+  events: SupplyChainEvent[];
+  blockchain?:
+    | {
+        verified?: boolean | undefined;
+        batchId?: string | undefined;
+        metadataHash?: string | undefined;
+        registeredBy?: string | undefined;
+        blockchainTimestamp?: number | undefined;
+        network?: string | undefined;
+        contractAddress?: string | undefined;
+      }
+    | undefined;
+  lab?:
+    | {
+        labName: string;
+        certificateNo: string;
+        testDate: string;
+        testResult: string;
+        qualityStatus: string;
+        notes?: string | null;
+      }
+    | undefined;
 }
 
-class NotFoundError extends Error {
-  constructor() {
-    super("Honey batch not found.");
+const STAGES = [
+  {
+    id: "harvested",
+    label: "Harvested",
+    description: "Honey harvested from the registered hive.",
+  },
+  {
+    id: "extracted",
+    label: "Extracted",
+    description: "Honey extracted from the harvested material.",
+  },
+  {
+    id: "processed",
+    label: "Processed",
+    description: "Honey processed before quality certification.",
+  },
+  {
+    id: "lab-tested",
+    label: "Lab Tested",
+    description: "Honey sample tested by a laboratory.",
+  },
+  {
+    id: "bottled",
+    label: "Bottled",
+    description: "Honey packaged into consumer bottles.",
+  },
+  {
+    id: "distributed",
+    label: "Distributed",
+    description: "Batch released into distribution.",
+  },
+] as const;
+
+const normalizeStage = (stage: string): string => {
+  return stage
+    .toLowerCase()
+    .trim()
+    .replace(/_/g, "-")
+    .replace(/\s+/g, "-");
+};
+
+const formatDate = (value?: string): string => {
+  if (!value) {
+    return "Not available";
   }
-}
 
-/*
- * Fetch Honey Passport data from the live FastAPI backend.
- *
- * Backend response format:
- *
- * {
- *   "passport": {...},
- *   "supply_chain": [...]
- * }
- *
- * The frontend converts that response into the format
- * expected by the existing Honey Passport UI.
- */
-const fetchBlockchainVerification = async (batchId: string) => {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
+
+const formatDateTime = (value?: string): string => {
+  if (!value) {
+    return "Not available";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const truncateHash = (value?: string): string => {
+  if (!value) {
+    return "Not available";
+  }
+
+  if (value.length <= 24) {
+    return value;
+  }
+
+  return value.slice(0, 12) + "..." + value.slice(-12);
+};
+
+const fetchBlockchainVerification = async (
+  batchId: string,
+): Promise<BlockchainData | null> => {
   try {
-    const res = await fetch(
-      `${API_BASE_URL}/api/blockchain/verify/${encodeURIComponent(batchId)}`,
+    const encodedBatchId = encodeURIComponent(batchId);
+
+    const response = await fetch(
+      API_BASE_URL +
+        "/api/blockchain/verify/" +
+        encodedBatchId,
     );
-    if (!res.ok) return null;
-    return await res.json();
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as BlockchainData;
   } catch {
     return null;
   }
 };
 
-const fetchPassport = async (batchId: string): Promise<PassportData> => {
-  const res = await fetch(
-    `${API_BASE_URL}/api/passport/${encodeURIComponent(batchId)}`,
+const fetchLabCertificate = async (
+  batchId: string,
+): Promise<LabCertificate | null> => {
+  try {
+    const encodedBatchId = encodeURIComponent(batchId);
+
+    const response = await fetch(
+      API_BASE_URL +
+        "/api/batches/" +
+        encodedBatchId +
+        "/lab-certificate",
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = (await response.json()) as {
+      certificate?: LabCertificate | null;
+    };
+
+    return result.certificate ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const fetchPassport = async (
+  batchId: string,
+): Promise<PassportData> => {
+  const encodedBatchId = encodeURIComponent(batchId);
+
+  const response = await fetch(
+    API_BASE_URL +
+      "/api/passport/" +
+      encodedBatchId,
   );
 
-  if (res.status === 404) {
+  if (response.status === 404) {
     throw new NotFoundError();
   }
 
-  if (!res.ok) {
+  if (!response.ok) {
     throw new Error(
-      `The verification backend returned an error (${res.status}).`,
+      "The verification backend returned an error (" +
+        response.status +
+        ").",
     );
   }
 
-  const result = await res.json();
+  const result = (await response.json()) as PassportResponse;
 
   if (!result.passport) {
-    throw new Error("Invalid passport data received from the backend.");
+    throw new Error(
+      "Invalid passport data received from the backend.",
+    );
   }
 
   const passport = result.passport;
-  const blockchain = await fetchBlockchainVerification(batchId);
+
+  const [blockchainResult, labResult] =
+    await Promise.allSettled([
+      fetchBlockchainVerification(batchId),
+      fetchLabCertificate(batchId),
+    ]);
+
+  const blockchain =
+    blockchainResult.status === "fulfilled"
+      ? blockchainResult.value
+      : null;
+
+  const labCertificate =
+    labResult.status === "fulfilled"
+      ? labResult.value
+      : null;
+
+  const passportLab = result.lab_certificate ?? null;
+
+  const finalLabCertificate =
+    labCertificate ?? passportLab;
+
+  const events: SupplyChainEvent[] = (
+    result.supply_chain ?? []
+  ).map(
+    (event): SupplyChainEvent => ({
+      event_id: event.event_id,
+      stage: event.stage,
+      timestamp: event.timestamp,
+      location: event.location,
+      actor: event.actor,
+      details: event.notes,
+      label: event.stage,
+    }),
+  );
 
   return {
     batchId: passport.batch_id,
@@ -152,39 +318,44 @@ const fetchPassport = async (batchId: string): Promise<PassportData> => {
     hiveId: passport.hive_id,
     honeyType: passport.honey_type,
     harvestDate: passport.harvest_date,
-    quantity: `${passport.quantity_kg} kg`,
+    quantity: String(passport.quantity_kg) + " kg",
     status: passport.status,
+    metadataHash: passport.metadata_hash ?? undefined,
+
+    events,
 
     blockchain: blockchain
       ? {
-          verified: blockchain.verified,
-          batchId: blockchain.batch_id,
-          metadataHash: blockchain.metadata_hash,
-          registeredBy: blockchain.registered_by,
-          blockchainTimestamp: blockchain.blockchain_timestamp,
-          network: blockchain.network,
-          contractAddress: blockchain.contract_address,
+          verified: blockchain.verified ?? false,
+          batchId: blockchain.batch_id ?? undefined,
+          metadataHash:
+            blockchain.metadata_hash ?? undefined,
+          registeredBy:
+            blockchain.registered_by ?? undefined,
+          blockchainTimestamp:
+            blockchain.blockchain_timestamp ?? undefined,
+          network: blockchain.network ?? undefined,
+          contractAddress:
+            blockchain.contract_address ?? undefined,
         }
       : undefined,
 
-    events: (result.supply_chain ?? []).map(
-      (event: {
-        event_id: number;
-        stage: string;
-        location?: string;
-        actor?: string;
-        timestamp?: string;
-        notes?: string;
-      }) => ({
-        event_id: event.event_id,
-        stage: event.stage,
-        timestamp: event.timestamp,
-        location: event.location,
-        actor: event.actor,
-        details: event.notes,
-        label: event.stage,
-      }),
-    ),
+    lab: finalLabCertificate
+      ? {
+          labName:
+            finalLabCertificate.laboratory_name,
+          certificateNo:
+            finalLabCertificate.certificate_id,
+          testDate:
+            finalLabCertificate.test_date,
+          testResult:
+            finalLabCertificate.test_result,
+          qualityStatus:
+            finalLabCertificate.quality_status,
+          notes:
+            finalLabCertificate.notes ?? null,
+        }
+      : undefined,
   };
 };
 
@@ -193,953 +364,682 @@ const passportQueryOptions = (batchId: string) => ({
   queryFn: () => fetchPassport(batchId),
 });
 
-const STAGES = [
-  { id: "harvested", label: "Harvested", icon: "🐝" },
-  { id: "extracted", label: "Extracted", icon: "🏭" },
-  { id: "processed", label: "Processed", icon: "⚙️" },
-  { id: "lab-tested", label: "Lab Tested", icon: "🧪" },
-  { id: "bottled", label: "Bottled", icon: "🍯" },
-  { id: "distributed", label: "Distributed", icon: "🚚" },
-];
-
-function normalizeStage(stage: string): string {
-  return stage
-    .toLowerCase()
-    .replace(/[\s_]+/g, "-")
-    .replace(/[^a-z0-9-]/g, "");
-}
-
-export const Route = createFileRoute("/passport/$batchId")({
-  component: HoneyPassportPage,
-
-  head: ({ params }) => ({
-    meta: [
-      {
-        title: `Honey Passport — ${params.batchId}`,
-      },
-      {
-        name: "description",
-        content: `Traceability passport for honey batch ${params.batchId}. Verified from hive to jar on HoneyChain.`,
-      },
-      {
-        property: "og:title",
-        content: `Honey Passport — ${params.batchId}`,
-      },
-      {
-        property: "og:description",
-        content: `Traceability passport for honey batch ${params.batchId}. Verified from hive to jar on HoneyChain.`,
-      },
-      {
-        property: "og:type",
-        content: "website",
-      },
-      {
-        name: "twitter:card",
-        content: "summary",
-      },
-    ],
-  }),
-});
-
-function HoneyPassportPage() {
-  const { batchId } = Route.useParams();
-
-  const {
-    data,
-    isLoading,
-    error,
-    refetch,
-  } = useQuery(passportQueryOptions(batchId));
-
-  if (isLoading) {
-    return <LoadingView batchId={batchId} />;
-  }
-
-  if (error) {
-    if (error instanceof NotFoundError) {
-      return <NotFoundView batchId={batchId} />;
-    }
-
-    return (
-      <ErrorView
-        batchId={batchId}
-        error={error as Error}
-        onRetry={() => refetch()}
-      />
-    );
-  }
-
-  if (!data) {
-    return (
-      <ErrorView
-        batchId={batchId}
-        error={new Error("No passport data was returned.")}
-        onRetry={() => refetch()}
-      />
-    );
-  }
-
-  return <PassportContent batchId={batchId} data={data} />;
-}
-
-function LoadingView({ batchId }: { batchId: string }) {
+function PageHeader() {
   return (
-    <div className="min-h-screen bg-background font-sans text-foreground">
-      <PassportHeader batchId={batchId} />
-
-      <main className="container mx-auto flex max-w-5xl flex-col items-center justify-center px-4 py-24 text-center">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-honey-light">
-          <Loader2 className="h-10 w-10 animate-spin text-honey-dark" />
-        </div>
-
-        <h2 className="mt-6 text-2xl font-bold">
-          Verifying batch...
-        </h2>
-
-        <p className="mt-2 max-w-md text-muted-foreground">
-          Fetching the HoneyChain passport record for{" "}
-          <span className="font-medium text-foreground">
-            {batchId}
-          </span>
-          .
-        </p>
-      </main>
-
-      <PassportFooter />
-    </div>
-  );
-}
-
-function NotFoundView({ batchId }: { batchId: string }) {
-  return (
-    <div className="min-h-screen bg-background font-sans text-foreground">
-      <PassportHeader batchId={batchId} />
-
-      <main className="container mx-auto max-w-5xl px-4 py-16">
-        <Card className="mx-auto max-w-xl border-honey/20 text-center">
-          <CardContent className="flex flex-col items-center p-8">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-              <AlertCircle className="h-8 w-8 text-muted-foreground" />
-            </div>
-
-            <h2 className="mt-6 text-2xl font-bold">
-              Honey batch not found.
-            </h2>
-
-            <p className="mt-2 text-muted-foreground">
-              We could not locate a passport record for batch{" "}
-              <span className="font-medium text-foreground">
-                {batchId}
-              </span>
-              .
-              Please check the QR code or batch ID and try again.
-            </p>
-
-            <Button
-              asChild
-              className="mt-6 bg-honey-dark text-honey-dark-foreground hover:bg-honey-dark/90"
-            >
-              <Link to="/">Return home</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </main>
-
-      <PassportFooter />
-    </div>
-  );
-}
-
-function ErrorView({
-  batchId,
-  error,
-  onRetry,
-}: {
-  batchId: string;
-  error: Error;
-  onRetry: () => void;
-}) {
-  return (
-    <div className="min-h-screen bg-background font-sans text-foreground">
-      <PassportHeader batchId={batchId} />
-
-      <main className="container mx-auto max-w-5xl px-4 py-16">
-        <Card className="mx-auto max-w-xl border-destructive/20 text-center">
-          <CardContent className="flex flex-col items-center p-8">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
-              <AlertCircle className="h-8 w-8 text-destructive" />
-            </div>
-
-            <h2 className="mt-6 text-2xl font-bold">
-              Could not verify batch
-            </h2>
-
-            <p className="mt-2 text-muted-foreground">
-              {error.message ||
-                "Something went wrong while contacting the verification backend."}
-            </p>
-
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              <Button
-                onClick={onRetry}
-                className="bg-honey-dark text-honey-dark-foreground hover:bg-honey-dark/90"
-              >
-                Try again
-              </Button>
-
-              <Button asChild variant="outline">
-                <Link to="/">Return home</Link>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </main>
-
-      <PassportFooter />
-    </div>
-  );
-}
-
-function PassportHeader({ batchId }: { batchId: string }) {
-  return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container mx-auto flex h-16 max-w-5xl items-center justify-between px-4">
-        <Link to="/" className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-honey text-honey-foreground">
-            <Hexagon className="h-5 w-5 fill-current" />
-          </div>
-
-          <span className="text-xl font-bold tracking-tight">
-            HoneyChain
-          </span>
+    <header className="border-b bg-background">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
+        <Link
+          to="/"
+          className="text-xl font-bold tracking-tight"
+        >
+          HoneyChain
         </Link>
 
-        <Badge
-          variant="outline"
-          className="border-trust/30 bg-trust-light text-trust"
-        >
-          <ShieldCheck className="mr-1 h-3 w-3" />
-          Verified
-        </Badge>
+        <div className="text-sm text-muted-foreground">
+          Honey Passport
+        </div>
       </div>
     </header>
   );
 }
 
-function PassportFooter() {
-  return (
-    <footer className="border-t bg-background py-8">
-      <div className="container mx-auto max-w-5xl px-4 text-center text-sm text-muted-foreground">
-        <p className="font-medium">
-          Powered by HoneyChain
-        </p>
+function StatusBadge({
+  status,
+}: {
+  status: string;
+}) {
+  const normalized = status.toLowerCase();
 
-        <p className="mt-1">
-          Smart India Hackathon 2026
-        </p>
-      </div>
-    </footer>
+  const isVerified =
+    normalized.includes("verified") ||
+    normalized.includes("distributed");
+
+  return (
+    <span
+      className={
+        "inline-flex rounded-full border px-3 py-1 text-xs font-semibold " +
+        (isVerified
+          ? "border-green-500/30 bg-green-500/10 text-green-700"
+          : "border-yellow-500/30 bg-yellow-500/10 text-yellow-700")
+      }
+    >
+      {status || "Created"}
+    </span>
   );
 }
 
-function PassportContent({
-  batchId,
-  data,
+function InfoCard({
+  title,
+  value,
+  description,
 }: {
-  batchId: string;
-  data: PassportData;
+  title: string;
+  value: string;
+  description?: string;
 }) {
-  const sortedEvents = useMemo(() => {
-    return [...(data.events ?? [])].sort((a, b) => {
-      if (!a.timestamp || !b.timestamp) {
-        return 0;
-      }
+  return (
+    <div className="rounded-xl border bg-card p-5 shadow-sm">
+      <p className="text-sm text-muted-foreground">
+        {title}
+      </p>
 
-      return (
-        new Date(a.timestamp).getTime() -
-        new Date(b.timestamp).getTime()
-      );
-    });
-  }, [data.events]);
+      <p className="mt-2 break-words text-lg font-semibold">
+        {value}
+      </p>
 
-  const currentStatusId = useMemo(() => {
-    if (sortedEvents.length > 0) {
-      return normalizeStage(
-        sortedEvents[sortedEvents.length - 1].stage,
-      );
-    }
-
-    return normalizeStage(data.status ?? "");
-  }, [data.status, sortedEvents]);
-
-  const currentStageIndex = STAGES.findIndex(
-    (s) => s.id === currentStatusId,
+      {description ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          {description}
+        </p>
+      ) : null}
+    </div>
   );
+}
 
+function Timeline({
+  events,
+}: {
+  events: SupplyChainEvent[];
+}) {
   const eventMap = useMemo(() => {
     const map = new Map<string, SupplyChainEvent>();
 
-    for (const event of data.events ?? []) {
+    for (const event of events) {
       map.set(normalizeStage(event.stage), event);
     }
 
     return map;
-  }, [data.events]);
+  }, [events]);
 
-  const blockchain = data.blockchain;
-  const lab = data.lab;
-  const hive = data.hive;
+  const currentStageIndex = useMemo(() => {
+    let lastIndex = -1;
+
+    for (let index = 0; index < STAGES.length; index += 1) {
+      const stage = STAGES[index];
+
+      if (!stage) {
+        continue;
+      }
+
+      if (eventMap.has(stage.id)) {
+        lastIndex = index;
+      }
+    }
+
+    return lastIndex;
+  }, [eventMap]);
 
   return (
-    <div className="min-h-screen bg-background font-sans text-foreground">
-      <PassportHeader batchId={batchId} />
+    <div className="space-y-4">
+      {STAGES.map((stage, index) => {
+        const event = eventMap.get(stage.id);
+        const isCompleted = Boolean(event);
+        const isCurrent =
+          isCompleted && index === currentStageIndex;
 
-      <main className="container mx-auto max-w-5xl px-4 py-8 md:py-12">
+        return (
+          <div
+            key={stage.id}
+            className="relative rounded-xl border bg-card p-5"
+          >
+            <div className="flex gap-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border text-sm font-bold">
+                {isCompleted ? "✓" : String(index + 1)}
+              </div>
 
-        {/* PAGE HEADER */}
-        <section className="mb-10 text-center">
-          <div className="mx-auto mb-4 inline-flex items-center gap-2 rounded-full border border-honey/30 bg-honey-light px-3 py-1 text-sm font-medium text-honey-dark">
-            <QrCode className="h-4 w-4" />
-            <span>
-              Scanned Batch: {batchId}
-            </span>
-          </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="font-semibold">
+                      {stage.label}
+                    </h3>
 
-          <h1 className="text-4xl font-extrabold tracking-tight text-foreground md:text-5xl">
-            Honey Passport
-          </h1>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {stage.description}
+                    </p>
+                  </div>
 
-          <p className="mx-auto mt-3 max-w-xl text-lg text-muted-foreground">
-            From Hive to Jar — Verified.
-          </p>
-        </section>
-
-        {/* BATCH INFORMATION */}
-        <section className="mb-10">
-          <Card className="overflow-hidden border-honey/20 shadow-lg">
-            <CardHeader className="honey-card">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <CardTitle className="text-2xl">
-                    Batch Information
-                  </CardTitle>
-
-                  <CardDescription>
-                    Complete traceability record for this honey batch
-                  </CardDescription>
+                  {isCurrent ? (
+                    <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                      Current stage
+                    </span>
+                  ) : null}
                 </div>
 
-                <Badge className="w-fit bg-honey-dark text-honey-dark-foreground hover:bg-honey-dark/90">
-                  {data.status}
-                </Badge>
+                {event ? (
+                  <div className="mt-4 space-y-2 border-t pt-4 text-sm">
+                    {event.location ? (
+                      <p>
+                        <span className="font-medium">
+                          Location:
+                        </span>{" "}
+                        {event.location}
+                      </p>
+                    ) : null}
+
+                    {event.actor ? (
+                      <p>
+                        <span className="font-medium">
+                          Recorded by:
+                        </span>{" "}
+                        {event.actor}
+                      </p>
+                    ) : null}
+
+                    {event.details ? (
+                      <p>
+                        <span className="font-medium">
+                          Notes:
+                        </span>{" "}
+                        {event.details}
+                      </p>
+                    ) : null}
+
+                    {event.timestamp ? (
+                      <p className="text-xs text-muted-foreground">
+                        {formatDateTime(event.timestamp)}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm text-muted-foreground">
+                    This stage has not been recorded yet.
+                  </p>
+                )}
               </div>
-            </CardHeader>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
-            <CardContent className="grid gap-6 p-6 sm:grid-cols-2 lg:grid-cols-4">
+function BlockchainSection({
+  blockchain,
+}: {
+  blockchain: PassportData["blockchain"];
+}) {
+  if (!blockchain) {
+    return (
+      <div className="rounded-xl border bg-card p-6">
+        <h2 className="text-lg font-semibold">
+          Blockchain Verification
+        </h2>
 
-              <InfoItem
-                icon={<Box className="h-4 w-4" />}
-                label="Batch ID"
-                value={data.batchId}
-              />
-
-              <InfoItem
-                icon={<User className="h-4 w-4" />}
-                label="Beekeeper"
-                value={data.beekeeper}
-              />
-
-              <InfoItem
-                icon={<MapPin className="h-4 w-4" />}
-                label="Location"
-                value={data.location}
-              />
-
-              <InfoItem
-                icon={<Hexagon className="h-4 w-4" />}
-                label="Hive ID"
-                value={data.hiveId}
-              />
-
-              <InfoItem
-                icon={<Leaf className="h-4 w-4" />}
-                label="Honey Type"
-                value={data.honeyType}
-              />
-
-              <InfoItem
-                icon={<Calendar className="h-4 w-4" />}
-                label="Harvest Date"
-                value={data.harvestDate}
-              />
-
-              <InfoItem
-                icon={<Droplets className="h-4 w-4" />}
-                label="Quantity"
-                value={data.quantity}
-              />
-
-              <InfoItem
-                icon={<ShieldCheck className="h-4 w-4" />}
-                label="Current Status"
-                value={data.status}
-              />
-
-            </CardContent>
-          </Card>
-        </section>
-
-        {/* QR VERIFICATION */}
-<section className="mb-10">
-  <Card className="border-honey/20 shadow-lg">
-    <CardHeader className="text-center">
-      <CardTitle className="flex items-center justify-center gap-2 text-xl">
-        <QrCode className="h-5 w-5 text-honey-dark" />
-        Verify This Honey
-      </CardTitle>
-
-      <CardDescription>
-        Scan the QR code to open this Honey Passport.
-      </CardDescription>
-    </CardHeader>
-
-    <CardContent className="flex flex-col items-center p-6">
-      <div className="rounded-2xl border bg-white p-4 shadow-sm">
-        <img
-          src={`${API_BASE_URL}/api/qr/${encodeURIComponent(batchId)}`}
-          alt={`QR code for honey batch ${batchId}`}
-          className="h-52 w-52"
-        />
+        <p className="mt-2 text-sm text-muted-foreground">
+          Blockchain verification information is currently unavailable.
+        </p>
       </div>
+    );
+  }
 
-      <p className="mt-4 text-sm text-muted-foreground">
-        Batch:{" "}
-        <span className="font-medium text-foreground">
-          {batchId}
-        </span>
-      </p>
-    </CardContent>
-  </Card>
-</section>
+  const explorerUrl =
+    blockchain.contractAddress
+      ? "https://sepolia.etherscan.io/address/" +
+        blockchain.contractAddress
+      : null;
 
-        {/* SUPPLY CHAIN */}
-        <section className="mb-10">
-          <h2 className="mb-6 text-2xl font-bold tracking-tight">
-            Supply Chain Journey
-          </h2>
-
-          <Card className="border-honey/20">
-            <CardContent className="p-6">
-              <div className="space-y-2">
-
-                {STAGES.map((stage, index) => {
-                  const event = eventMap.get(stage.id);
-
-                  const isCompleted = Boolean(event);
-
-                  const isCurrent =
-                    Boolean(event) && index === currentStageIndex;
-
-                  return (
-                    <TimelineItem
-                      key={stage.id}
-                      stage={stage}
-                      event={event}
-                      isCompleted={isCompleted}
-                      isCurrent={isCurrent}
-                      isLast={
-                        index === STAGES.length - 1
-                      }
-                    />
-                  );
-                })}
-
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-
-        {/* TRACEABILITY */}
-        <section className="mb-10">
-          <Card className="border-leaf/20 bg-leaf/5">
-            <CardContent className="flex flex-col items-center gap-5 p-8 text-center md:flex-row md:text-left">
-
-              <div className="verified-ring flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-leaf text-leaf-foreground">
-                <ShieldCheck className="h-8 w-8" />
-              </div>
-
-              <div>
-                <h2 className="text-xl font-bold">
-                  Traceability Verified
-                </h2>
-
-                <p className="mt-1 text-muted-foreground">
-                  This batch is tracked through recorded supply-chain events from
-                  hive to jar. Every recorded event can be independently verified
-                  through the HoneyChain traceability system.
-                </p>
-              </div>
-
-            </CardContent>
-          </Card>
-        </section>
-
-        {/* BLOCKCHAIN */}
-        <section className="mb-10">
-          <h2 className="mb-6 text-2xl font-bold tracking-tight">
+  return (
+    <div className="rounded-xl border bg-card p-6 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold">
             Blockchain Verification
           </h2>
 
-          <Card className="border-trust/20 trust-glow">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Database className="h-5 w-5 text-trust" />
-                On-Chain Record
-              </CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            The batch metadata is anchored to the Sepolia blockchain.
+          </p>
+        </div>
 
-              <CardDescription>
-                This passport will be anchored to a public blockchain record
-                for transparency.
-              </CardDescription>
-            </CardHeader>
+        <span
+          className={
+            "rounded-full px-3 py-1 text-xs font-semibold " +
+            (blockchain.verified
+              ? "bg-green-500/10 text-green-700"
+              : "bg-red-500/10 text-red-700")
+          }
+        >
+          {blockchain.verified
+            ? "Verified"
+            : "Not verified"}
+        </span>
+      </div>
 
-            <CardContent className="grid gap-6 p-6 pt-0 sm:grid-cols-2">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+        <InfoCard
+          title="Batch ID"
+          value={blockchain.batchId ?? "Not available"}
+        />
 
-              <InfoItem
-                icon={<Database className="h-4 w-4" />}
-                label="Network"
-                value={
-                  blockchain?.network ??
-                  "Sepolia Testnet"
-                }
-              />
+        <InfoCard
+          title="Network"
+          value={blockchain.network ?? "Sepolia"}
+        />
 
-              <InfoItem
-                icon={<Box className="h-4 w-4" />}
-                label="Status"
-                value={
-                  blockchain?.verified ? "Verified" : "Not registered"
-                }
-              />
+        <InfoCard
+          title="Registered By"
+          value={
+            blockchain.registeredBy ??
+            "Not available"
+          }
+        />
 
-              <InfoItem
-                icon={<Hexagon className="h-4 w-4" />}
-                label="Metadata Hash"
-                value={
-                  blockchain?.metadataHash ?? "—"
-                }
-                className="sm:col-span-2"
-              />
+        <InfoCard
+          title="Blockchain Timestamp"
+          value={
+            blockchain.blockchainTimestamp
+              ? formatDateTime(
+                  new Date(
+                    blockchain.blockchainTimestamp * 1000,
+                  ).toISOString(),
+                )
+              : "Not available"
+          }
+        />
+      </div>
 
-              <InfoItem
-                icon={<Calendar className="h-4 w-4" />}
-                label="Registered By"
-                value={blockchain?.registeredBy ?? "—"}
-                className="sm:col-span-2"
-              />
+      <div className="mt-4 rounded-lg bg-muted/50 p-4">
+        <p className="text-xs text-muted-foreground">
+          Metadata hash
+        </p>
 
-              <InfoItem
-                icon={<Hexagon className="h-4 w-4" />}
-                label="Contract Address"
-                value={blockchain?.contractAddress ?? "—"}
-                className="sm:col-span-2"
-              />
+        <p className="mt-2 break-all font-mono text-xs">
+          {blockchain.metadataHash ??
+            "Not available"}
+        </p>
+      </div>
 
-              <InfoItem
-                icon={<Calendar className="h-4 w-4" />}
-                label="Blockchain Timestamp"
-                value={
-                  blockchain?.blockchainTimestamp
-                    ? new Date(blockchain.blockchainTimestamp * 1000).toLocaleString("en-IN", {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      })
-                    : "—"
-                }
-                className="sm:col-span-2"
-              />
+      {explorerUrl ? (
+        <a
+          href={explorerUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-5 inline-flex rounded-lg border px-4 py-2 text-sm font-medium hover:bg-muted"
+        >
+          View contract on Sepolia Etherscan
+        </a>
+      ) : null}
+    </div>
+  );
+}
 
-            </CardContent>
-          </Card>
-        </section>
+function LabSection({
+  lab,
+}: {
+  lab: PassportData["lab"];
+}) {
+  if (!lab) {
+    return (
+      <div className="rounded-xl border bg-card p-6 shadow-sm">
+        <h2 className="text-lg font-semibold">
+          Laboratory Testing
+        </h2>
 
-        {/* LAB TESTING */}
-        <section className="mb-10">
-          <h2 className="mb-6 text-2xl font-bold tracking-tight">
-            Lab Testing Information
+        <p className="mt-2 text-sm text-muted-foreground">
+          No laboratory certificate has been attached to this batch.
+        </p>
+      </div>
+    );
+  }
+
+  const passed =
+    lab.qualityStatus.toLowerCase().includes("verified") ||
+    lab.qualityStatus.toLowerCase().includes("pass") ||
+    lab.testResult.toLowerCase().includes("pass");
+
+  return (
+    <div className="rounded-xl border bg-card p-6 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold">
+            Laboratory Testing
           </h2>
 
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <FlaskConical className="h-5 w-5 text-trust" />
+          <p className="mt-1 text-sm text-muted-foreground">
+            Quality information associated with this honey batch.
+          </p>
+        </div>
 
-                <CardTitle className="text-lg">
-                  {lab?.labName ??
-                    "Lab Report Pending"}
-                </CardTitle>
-              </div>
+        <span
+          className={
+            "rounded-full px-3 py-1 text-xs font-semibold " +
+            (passed
+              ? "bg-green-500/10 text-green-700"
+              : "bg-yellow-500/10 text-yellow-700")
+          }
+        >
+          {lab.qualityStatus}
+        </span>
+      </div>
 
-              {lab && (
-                <CardDescription>
-                  Certificate No:{" "}
-                  {lab.certificateNo ?? "—"} · Tested on{" "}
-                  {lab.testDate ?? "—"}
-                </CardDescription>
-              )}
-            </CardHeader>
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+        <InfoCard
+          title="Laboratory"
+          value={lab.labName}
+        />
 
-            {lab ? (
-              <CardContent className="grid gap-4 p-6 pt-0 sm:grid-cols-2 lg:grid-cols-4">
+        <InfoCard
+          title="Certificate Number"
+          value={lab.certificateNo}
+        />
 
-                <MetricCard
-                  label="Moisture"
-                  value={lab.moisture ?? "—"}
-                />
+        <InfoCard
+          title="Test Date"
+          value={formatDate(lab.testDate)}
+        />
 
-                <MetricCard
-                  label="pH Level"
-                  value={lab.ph ?? "—"}
-                />
+        <InfoCard
+          title="Test Result"
+          value={lab.testResult}
+        />
+      </div>
 
-                <MetricCard
-                  label="Purity"
-                  value={lab.purity ?? "—"}
-                />
+      {lab.notes ? (
+        <div className="mt-4 rounded-lg bg-muted/50 p-4">
+          <p className="text-xs text-muted-foreground">
+            Laboratory notes
+          </p>
 
-                <MetricCard
-                  label="Pollen Source"
-                  value={lab.pollen ?? "—"}
-                />
+          <p className="mt-1 text-sm">
+            {lab.notes}
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
-              </CardContent>
-            ) : (
-              <CardContent className="p-6 pt-0 text-sm text-muted-foreground">
-                Lab testing details will appear here once the batch has been
-                tested.
-              </CardContent>
-            )}
-          </Card>
-        </section>
+function PassportPage() {
+  const { batchId } = Route.useParams();
 
-        {/* HIVE INFORMATION */}
-        <section className="mb-10">
-          <h2 className="mb-6 text-2xl font-bold tracking-tight">
-            Originating Hive Information
-          </h2>
+  const query = useQuery(
+    passportQueryOptions(batchId),
+  );
 
-          <Card className="overflow-hidden">
-            <div className="grid md:grid-cols-2">
+  const passportUrl =
+    typeof window !== "undefined"
+      ? window.location.origin +
+        "/passport/" +
+        encodeURIComponent(batchId)
+      : "https://honeychain-frontend.vercel.app/passport/" +
+        encodeURIComponent(batchId);
 
-              <CardContent className="p-6">
-                <div className="space-y-4">
+  const qrUrl =
+    "https://quickchart.io/qr?size=240&text=" +
+    encodeURIComponent(passportUrl);
 
-                  <InfoItem
-                    icon={<Hexagon className="h-4 w-4" />}
-                    label="Hive ID"
-                    value={
-                      hive?.hiveId ??
-                      data.hiveId
-                    }
-                  />
+  if (query.isLoading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <PageHeader />
 
-                  <InfoItem
-                    icon={<MapPin className="h-4 w-4" />}
-                    label="Apiary"
-                    value={
-                      hive?.apiaryName ?? "—"
-                    }
-                  />
+        <main className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+          <div className="rounded-2xl border bg-card p-10 text-center">
+            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-muted border-t-primary" />
 
-                  <InfoItem
-                    icon={<MapPin className="h-4 w-4" />}
-                    label="Coordinates"
-                    value={
-                      hive?.coordinates ?? "—"
-                    }
-                  />
+            <h1 className="mt-6 text-xl font-semibold">
+              Loading Honey Passport
+            </h1>
 
-                  <InfoItem
-                    icon={<Leaf className="h-4 w-4" />}
-                    label="Flora Source"
-                    value={
-                      hive?.floraSource ?? "—"
-                    }
-                  />
+            <p className="mt-2 text-sm text-muted-foreground">
+              Retrieving traceability and verification information.
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
-                  <InfoItem
-                    icon={<User className="h-4 w-4" />}
-                    label="Beekeeper"
-                    value={
-                      hive?.beekeeper
-                        ? `${hive.beekeeper}${
-                            hive.experience
-                              ? ` · ${hive.experience} experience`
-                              : ""
-                          }`
-                        : data.beekeeper
-                    }
-                  />
+  if (query.error instanceof NotFoundError) {
+    return (
+      <div className="min-h-screen bg-background">
+        <PageHeader />
 
-                  <InfoItem
-                    icon={<Settings className="h-4 w-4" />}
-                    label="Harvest Method"
-                    value={
-                      hive?.harvestMethod ?? "—"
-                    }
-                  />
+        <main className="mx-auto max-w-3xl px-4 py-20 sm:px-6">
+          <div className="rounded-2xl border bg-card p-10 text-center shadow-sm">
+            <h1 className="text-2xl font-bold">
+              Honey batch not found
+            </h1>
 
-                </div>
-              </CardContent>
+            <p className="mt-3 text-muted-foreground">
+              We could not locate a passport record for batch{" "}
+              <span className="font-mono font-medium">
+                {batchId}
+              </span>
+              .
+            </p>
 
-              <div className="relative flex min-h-[260px] items-center justify-center bg-honey-light p-6">
+            <Link
+              to="/"
+              className="mt-6 inline-flex rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground"
+            >
+              Return home
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
-                <div className="text-center">
+  if (query.error) {
+    return (
+      <div className="min-h-screen bg-background">
+        <PageHeader />
 
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-honey text-honey-foreground">
-                    <MapPin className="h-8 w-8" />
-                  </div>
+        <main className="mx-auto max-w-3xl px-4 py-20 sm:px-6">
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-10 text-center">
+            <h1 className="text-2xl font-bold">
+              Unable to load Honey Passport
+            </h1>
 
-                  <p className="mt-3 font-semibold text-honey-dark">
-                    {data.location}
-                  </p>
+            <p className="mt-3 text-sm text-muted-foreground">
+              Something went wrong while contacting the verification backend.
+            </p>
 
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Verified Origin
-                  </p>
+            <button
+              type="button"
+              onClick={() => query.refetch()}
+              className="mt-6 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground"
+            >
+              Try again
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
-                </div>
+  const data = query.data;
 
-              </div>
+  if (!data) {
+    return null;
+  }
 
+  return (
+    <div className="min-h-screen bg-background">
+      <PageHeader />
+
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
+        <div className="mb-8">
+          <p className="text-sm font-medium text-primary">
+            HONEY PASSPORT
+          </p>
+
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+                {data.batchId}
+              </h1>
+
+              <p className="mt-2 text-muted-foreground">
+                Transparent farm-to-bottle traceability.
+              </p>
             </div>
-          </Card>
+
+            <StatusBadge status={data.status} />
+          </div>
+        </div>
+
+        <section className="grid gap-6 lg:grid-cols-[1fr_280px]">
+          <div className="rounded-2xl border bg-card p-6 shadow-sm">
+            <h2 className="text-xl font-semibold">
+              Batch Information
+            </h2>
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <InfoCard
+                title="Beekeeper"
+                value={data.beekeeper}
+              />
+
+              <InfoCard
+                title="Origin"
+                value={data.location}
+              />
+
+              <InfoCard
+                title="Hive ID"
+                value={data.hiveId}
+              />
+
+              <InfoCard
+                title="Honey Type"
+                value={data.honeyType}
+              />
+
+              <InfoCard
+                title="Harvest Date"
+                value={formatDate(data.harvestDate)}
+              />
+
+              <InfoCard
+                title="Quantity"
+                value={data.quantity}
+              />
+            </div>
+          </div>
+
+          <div className="rounded-2xl border bg-card p-6 text-center shadow-sm">
+            <h2 className="text-lg font-semibold">
+              Scan to Verify
+            </h2>
+
+            <p className="mt-2 text-xs text-muted-foreground">
+              Scan this QR code to open the Honey Passport.
+            </p>
+
+            <div className="mx-auto mt-5 flex w-fit rounded-xl border bg-white p-3">
+              <img
+                src={qrUrl}
+                alt={
+                  "QR code for Honey Passport " +
+                  data.batchId
+                }
+                width={220}
+                height={220}
+                className="h-[220px] w-[220px]"
+              />
+            </div>
+
+            <p className="mt-4 break-all font-mono text-xs text-muted-foreground">
+              {data.batchId}
+            </p>
+          </div>
         </section>
 
+        <section className="mt-8">
+          <div className="mb-5">
+            <h2 className="text-2xl font-bold">
+              Supply Chain Traceability
+            </h2>
+
+            <p className="mt-1 text-sm text-muted-foreground">
+              Every recorded stage of this honey batch.
+            </p>
+          </div>
+
+          <Timeline events={data.events} />
+        </section>
+
+        <section className="mt-8">
+          <BlockchainSection
+            blockchain={data.blockchain}
+          />
+        </section>
+
+        <section className="mt-8">
+          <LabSection lab={data.lab} />
+        </section>
+
+        <section className="mt-8 rounded-2xl border bg-card p-6 shadow-sm">
+          <h2 className="text-lg font-semibold">
+            Originating Hive
+          </h2>
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-3">
+            <InfoCard
+              title="Hive ID"
+              value={data.hiveId}
+            />
+
+            <InfoCard
+              title="Beekeeper"
+              value={data.beekeeper}
+            />
+
+            <InfoCard
+              title="Location"
+              value={data.location}
+            />
+          </div>
+        </section>
+
+        <section className="mt-8 rounded-2xl border bg-muted/30 p-6">
+          <h2 className="text-lg font-semibold">
+            Traceability Integrity
+          </h2>
+
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            HoneyChain uses a cryptographic metadata hash to detect
+            changes to registered batch information. The blockchain
+            provides a tamper-evident record of the registered hash.
+            Blockchain verification does not by itself prove honey
+            purity; laboratory testing provides the supporting quality
+            evidence.
+          </p>
+
+          {data.metadataHash ? (
+            <div className="mt-5 rounded-lg border bg-background p-4">
+              <p className="text-xs text-muted-foreground">
+                Registered metadata hash
+              </p>
+
+              <p className="mt-2 break-all font-mono text-xs">
+                {data.metadataHash}
+              </p>
+
+              <p className="mt-2 text-xs text-muted-foreground">
+                Short form:{" "}
+                {truncateHash(data.metadataHash)}
+              </p>
+            </div>
+          ) : null}
+        </section>
       </main>
 
-      <PassportFooter />
-    </div>
-  );
-}
-
-function InfoItem({
-  icon,
-  label,
-  value,
-  className,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  className?: string;
-}) {
-  return (
-    <div className={cn("min-w-0 space-y-1", className)}>
-
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        {icon}
-        <span>{label}</span>
-      </div>
-
-      <p className="truncate font-medium text-foreground">
-        {value}
-      </p>
-
-    </div>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-lg border bg-card p-4">
-
-      <p className="text-sm text-muted-foreground">
-        {label}
-      </p>
-
-      <p className="mt-1 text-2xl font-bold text-foreground">
-        {value}
-      </p>
-
-      <Badge
-        variant="outline"
-        className="mt-2 border-leaf/30 bg-leaf/10 text-leaf"
-      >
-        <Check className="mr-1 h-3 w-3" />
-        Pass
-      </Badge>
-
-    </div>
-  );
-}
-
-function TimelineItem({
-  stage,
-  event,
-  isCompleted,
-  isCurrent,
-  isLast,
-}: {
-  stage: (typeof STAGES)[number];
-  event?: SupplyChainEvent;
-  isCompleted: boolean;
-  isCurrent: boolean;
-  isLast: boolean;
-}) {
-  const displayLabel =
-    event?.label ?? stage.label;
-
-  const displayIcon =
-    event?.icon ?? stage.icon;
-
-  const eventTime = event?.timestamp
-    ? new Date(event.timestamp).toLocaleString(
-        "en-IN",
-        {
-          dateStyle: "medium",
-          timeStyle: "short",
-        },
-      )
-    : null;
-
-  return (
-    <div className="flex gap-4">
-
-      <div className="flex flex-col items-center">
-
-        <div
-          className={cn(
-            "flex h-11 w-11 items-center justify-center rounded-full border-2 text-lg transition-colors",
-
-            isCompleted
-              ? "border-leaf bg-leaf text-leaf-foreground"
-              : "border-border bg-background text-muted-foreground",
-
-            isCurrent &&
-              "ring-2 ring-honey ring-offset-2 ring-offset-background",
-          )}
-        >
-          {isCompleted ? (
-            <Check className="h-5 w-5" />
-          ) : (
-            <span>{displayIcon}</span>
-          )}
+      <footer className="border-t">
+        <div className="mx-auto max-w-6xl px-4 py-8 text-center text-xs text-muted-foreground sm:px-6">
+          HoneyChain — Blockchain-based honey traceability
         </div>
-
-        {!isLast && (
-          <div
-            className={cn(
-              "mt-2 w-0.5 flex-1 rounded-full",
-
-              isCompleted
-                ? "bg-leaf"
-                : "bg-border",
-            )}
-          />
-        )}
-
-      </div>
-
-      <div
-        className={cn(
-          "mb-6 flex-1 rounded-xl border p-4",
-
-          isCompleted
-            ? "border-leaf/20 bg-leaf/5"
-            : "border-border bg-card",
-
-          isCurrent &&
-            "border-honey/30 bg-honey-light/50",
-        )}
-      >
-
-        <div className="flex items-center justify-between gap-2">
-
-          <div className="flex items-center gap-2">
-
-            <span className="text-lg">
-              {displayIcon}
-            </span>
-
-            <h3
-              className={cn(
-                "font-semibold",
-                isCurrent &&
-                  "text-honey-dark",
-              )}
-            >
-              {displayLabel}
-            </h3>
-
-          </div>
-
-          {isCompleted && !isCurrent && (
-            <Badge
-              variant="outline"
-              className="border-leaf/30 bg-leaf/10 text-leaf"
-            >
-              <Check className="mr-1 h-3 w-3" />
-              Done
-            </Badge>
-          )}
-
-          {isCurrent && (
-            <Badge className="bg-honey-dark text-honey-dark-foreground">
-              Current
-            </Badge>
-          )}
-
-        </div>
-
-        {(isCurrent ||
-          eventTime ||
-          event?.details ||
-          event?.location ||
-          event?.actor) && (
-          <div className="mt-2 space-y-1.5 text-sm text-muted-foreground">
-            {event?.details ? (
-              <p>{event.details}</p>
-            ) : isCurrent ? (
-              <p>
-                This batch is currently at the{" "}
-                {displayLabel.toLowerCase()} stage.
-              </p>
-            ) : null}
-
-            {event?.location && (
-              <p>
-                <span className="font-medium text-foreground">
-                  Location:
-                </span>{" "}
-                {event.location}
-              </p>
-            )}
-
-            {event?.actor && (
-              <p>
-                <span className="font-medium text-foreground">
-                  Recorded by:
-                </span>{" "}
-                {event.actor}
-              </p>
-            )}
-
-            {eventTime && (
-              <p className="text-xs text-muted-foreground/80">
-                {eventTime}
-              </p>
-            )}
-          </div>
-        )}
-
-      </div>
+      </footer>
     </div>
   );
 }
+
+export const Route = createFileRoute(
+  "/passport/$batchId",
+)({
+  component: PassportPage,
+});
